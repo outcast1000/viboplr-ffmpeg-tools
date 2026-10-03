@@ -1,5 +1,10 @@
 # Changelog
 
+## v1.1.0
+- **Runs in the plugin worker runtime.** It now gets only what it asks for
+  — `exec:ffmpeg`, `library:read` — and can't reach anything else in the app. Viboplr asks
+  you to allow these once when you update. Requires Viboplr 1.0.85.
+
 ## v1.0.0
 - Moved the plugin to its own repository with in-app auto-update.
 - **Convert** — right-click Convert to… native submenu (MP3/AAC/FLAC/OGG/Opus/WAV
