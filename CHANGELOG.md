@@ -1,5 +1,23 @@
 # Changelog
 
+## v1.3.0
+- **Media Info is easier to read.** The tiles are replaced by plain label/value rows
+  under small headings, like the rest of the app. Long values (album names, codecs)
+  no longer wrap into towers, the container shows as the file's type (`m4a`, not
+  ffmpeg's `mov,mp4,m4a,3gp,3g2,mj2`), and the MP4 brand bookkeeping tags are hidden.
+- **Waveform.** Media Info opens with the track's loudness over time, measured in the
+  same ffmpeg run as the loudness numbers.
+- **Frequency bands.** A chart of the low (under 200 Hz), mid (around 1 kHz) and high
+  (above 4 kHz) bands over time, in your skin's colours.
+- **Structure.** Tempo, where the music starts and ends, the loudest moments and the
+  song's sections, from the same analysis the `analyze_audio` assistant tool uses. The
+  first run takes a few seconds; after that it is cached per file, for the view and
+  for an assistant.
+- **Video and cover art.** Media Info now lists video streams (codec, resolution,
+  frame rate, pixel format, bitrate) and embedded cover art (format and size). The
+  `media_info` assistant tool returns them too (`videoStreams`, `coverArt`).
+- **Fix:** a video stream's metadata was attached to the audio stream before it.
+
 ## v1.2.0
 - **`analyze_audio` assistant tool.** An AI assistant can now ask for a local track's
   musical structure, so it can time Now Playing cue sheets and clips to the music:

@@ -1,39 +1,97 @@
 {
   "id": "ffmpeg-tools",
   "name": "FFmpeg Tools",
-  "version": "1.2.0",
+  "version": "1.3.0",
   "author": "Viboplr",
   "description": "Bulk-convert local tracks to another format, inspect a file's container/stream/tag + loudness info on demand, and give an AI assistant a song's structure (sections, loudness, beats) — all via your system ffmpeg.",
   "minAppVersion": "1.0.85",
   "runtime": "worker",
-  "permissions": ["exec:ffmpeg", "library:read", "playback:read"],
+  "permissions": [
+    "exec:ffmpeg",
+    "library:read",
+    "playback:read"
+  ],
   "homepage": "https://github.com/outcast1000/viboplr-ffmpeg-tools",
   "updateUrl": "https://github.com/outcast1000/viboplr-ffmpeg-tools/releases/latest/download/update.json",
   "icon": "M14.7 6.3a1 1 0 0 1 0 1.4l-1.6 1.6a1 1 0 0 1-1.4 0l-1.6-1.6a1 1 0 0 1 0-1.4l3.77-3.77a6 6 0 0 0-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 0 3 3l6.91-6.91a6 6 0 0 0 7.94-7.94l-3.76 3.76z",
   "binaryDependencies": [
-    { "name": "ffmpeg", "required": true, "reason": "Converts local tracks to another format, probes container/stream/tag + loudness info, and analyses song structure" }
+    {
+      "name": "ffmpeg",
+      "required": true,
+      "reason": "Converts local tracks to another format, probes container/stream/tag + loudness info, and analyses song structure"
+    }
   ],
   "apiUsage": [
-    { "api": "system.exec", "reason": "Run ffmpeg for conversion, container/stream probing, loudness measurement and song-structure analysis" },
-    { "api": "system.getDependency", "reason": "Check ffmpeg availability before enabling any feature" },
-    { "api": "ui.requestAction", "reason": "Prompt ffmpeg install on an explicit convert action; route deletes through the canonical delete flow" },
-    { "api": "library.getTrackById", "reason": "Resolve a context-menu or assistant target to its filesystem path" },
-    { "api": "playback.getCurrentTrack", "reason": "media_info / analyze_audio with no trackId read the playing track" },
-    { "api": "contextMenu.registerItem", "reason": "\"Media Info (FFmpeg)\" on a track, and the \"Convert to…\" native submenu with fixed format presets" },
-    { "api": "ui.navigateToView", "reason": "Open the FFmpeg Tools view on Media Info or the convert jobs" },
-    { "api": "assistant.onTool", "reason": "Answer the media_info and analyze_audio assistant tools" },
-    { "api": "storage.get", "reason": "Load the auto-delete-original preference" },
-    { "api": "storage.set", "reason": "Persist the auto-delete-original preference" },
-    { "api": "storage.files.exists", "reason": "Check for the analysis cache index before reading it" },
-    { "api": "storage.files.readJson", "reason": "Read cached song analyses" },
-    { "api": "storage.files.writeJson", "reason": "Cache song analyses, keyed by file path + size + modification time" },
-    { "api": "storage.files.remove", "reason": "Evict old cached analyses" }
+    {
+      "api": "system.exec",
+      "reason": "Run ffmpeg for conversion, container/stream probing, loudness measurement and song-structure analysis"
+    },
+    {
+      "api": "system.getDependency",
+      "reason": "Check ffmpeg availability before enabling any feature"
+    },
+    {
+      "api": "ui.requestAction",
+      "reason": "Prompt ffmpeg install on an explicit convert action; route deletes through the canonical delete flow"
+    },
+    {
+      "api": "library.getTrackById",
+      "reason": "Resolve a context-menu or assistant target to its filesystem path"
+    },
+    {
+      "api": "playback.getCurrentTrack",
+      "reason": "media_info / analyze_audio with no trackId read the playing track"
+    },
+    {
+      "api": "contextMenu.registerItem",
+      "reason": "\"Media Info (FFmpeg)\" on a track, and the \"Convert to…\" native submenu with fixed format presets"
+    },
+    {
+      "api": "ui.navigateToView",
+      "reason": "Open the FFmpeg Tools view on Media Info or the convert jobs"
+    },
+    {
+      "api": "assistant.onTool",
+      "reason": "Answer the media_info and analyze_audio assistant tools"
+    },
+    {
+      "api": "storage.get",
+      "reason": "Load the auto-delete-original preference"
+    },
+    {
+      "api": "storage.set",
+      "reason": "Persist the auto-delete-original preference"
+    },
+    {
+      "api": "storage.files.exists",
+      "reason": "Check for the analysis cache index before reading it"
+    },
+    {
+      "api": "storage.files.readJson",
+      "reason": "Read cached song analyses"
+    },
+    {
+      "api": "storage.files.writeJson",
+      "reason": "Cache song analyses, keyed by file path + size + modification time"
+    },
+    {
+      "api": "storage.files.remove",
+      "reason": "Evict old cached analyses"
+    }
   ],
   "contributes": {
     "sidebarItems": [
-      { "id": "ffmpeg-tools-jobs", "label": "FFmpeg Tools", "icon": "M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01" }
+      {
+        "id": "ffmpeg-tools-jobs",
+        "label": "FFmpeg Tools",
+        "icon": "M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01"
+      }
     ],
-    "settingsPanel": { "id": "ffmpeg-tools-settings", "label": "FFmpeg Tools", "order": 60 },
+    "settingsPanel": {
+      "id": "ffmpeg-tools-settings",
+      "label": "FFmpeg Tools",
+      "order": 60
+    },
     "assistant": {
       "instructions": "media_info reads a local file's technical facts with ffmpeg: container, duration, bitrate, per-stream codec/sample rate/channels/sample format, embedded tags, and measured loudness (integrated LUFS, true peak, loudness range, a suggested ReplayGain-style gain — informational, nothing is written). Use it to answer questions about a file's format or quality; it decodes the whole file for loudness (about a second for a song) and is not cached. analyze_audio measures a local track's musical structure with ffmpeg: where the music starts and ends, loudness, sections (intro/build/main/peak/breakdown/outro/silence with A/B/C labels for parts that sound alike), loud peaks, a loudness envelope and a beat grid. Call it before writing a clip or a timed cue sheet for a local track; it runs only when you call it (a few seconds for a song, cached afterwards). Times are seconds into the track. Sections, labels, beats and vocals are estimates — each carries a confidence, so treat low values as hints. How to use it: end a title sequence before the intro ends and cut at a section boundary; change images on section boundaries and downbeats, not on a fixed interval; a breakdown is the place for the single biggest visual moment (one or two words), with energy back at the boundary where the rebuild starts; put the closing card on the outro or after musicEndSecs; make beat-synced word hits only when beats.confidence is at least 0.5; sections sharing a label are probably repeats, good for repeated motifs, but don't assume lyrics without timed lyrics. It needs a local file — streams and remote tracks are refused.",
       "tools": [
@@ -44,7 +102,10 @@
           "inputSchema": {
             "type": "object",
             "properties": {
-              "trackId": { "type": "integer", "description": "Library track id. Omit for the currently playing track." }
+              "trackId": {
+                "type": "integer",
+                "description": "Library track id. Omit for the currently playing track."
+              }
             }
           }
         },
@@ -55,13 +116,33 @@
           "inputSchema": {
             "type": "object",
             "properties": {
-              "trackId": { "type": "integer", "description": "Library track id. Omit to analyse the currently playing track." },
+              "trackId": {
+                "type": "integer",
+                "description": "Library track id. Omit to analyse the currently playing track."
+              },
               "include": {
                 "type": "array",
-                "items": { "type": "string", "enum": ["sections", "envelope", "beats", "bands", "vocals"] },
+                "items": {
+                  "type": "string",
+                  "enum": [
+                    "sections",
+                    "envelope",
+                    "beats",
+                    "bands",
+                    "vocals"
+                  ]
+                },
                 "description": "Which parts to return. Default: sections, envelope, beats. Track, music start/end and loudness are always included."
               },
-              "envelopeHz": { "type": "integer", "enum": [1, 2, 4], "description": "Envelope points per second (default 1). Capped at about 1200 points, so long files get fewer." }
+              "envelopeHz": {
+                "type": "integer",
+                "enum": [
+                  1,
+                  2,
+                  4
+                ],
+                "description": "Envelope points per second (default 1). Capped at about 1200 points, so long files get fewer."
+              }
             }
           }
         }

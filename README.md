@@ -17,14 +17,18 @@ built-in of the same id, if any).
   Settings toggle routes the original through the app's normal
   delete-with-confirmation flow once a conversion succeeds.
 - **Media Info** — right-click a local library track → **Media Info (FFmpeg)**. The
-  sidebar **FFmpeg Tools** view opens on its *Media Info* tab with container format,
-  duration, per-stream codec/sample-rate/channels/sample-format/bitrate, every
-  embedded tag, and measured loudness (integrated LUFS, true peak, loudness range,
-  and a suggested ReplayGain-style track gain — informational only, nothing is
-  written back to the file). It runs only when asked — never when a page opens —
-  and is measured fresh each time (about a second for a song); **Refresh** re-reads.
+  sidebar **FFmpeg Tools** view opens on its *Media Info* tab with a waveform,
+  container format, duration, cover art, per-stream audio
+  codec/sample-rate/channels/sample-format/bitrate, video codec/resolution/frame
+  rate/pixel format, a low/mid/high frequency-band chart, every embedded tag, and
+  measured loudness (integrated LUFS, true peak, loudness range, and a suggested
+  ReplayGain-style track gain — informational only, nothing is written back to the
+  file). A **Structure** block follows: tempo, where the music starts and ends, the
+  loudest moments and the song's sections — the same analysis `analyze_audio` serves,
+  cached per file. It runs only when asked — never when a page opens — and the file
+  facts are measured fresh each time (a few seconds for a song); **Refresh** re-reads.
   The `media_info` assistant tool (`ffmpeg-tools__media_info`, read-only) returns the
-  same facts as JSON.
+  file facts as JSON.
 - **Song structure for AI assistants** — the read-only `analyze_audio` assistant tool
   (exposed as `ffmpeg-tools__analyze_audio`) returns a local track's music start/end,
   loudness, sections, loud peaks, a loudness envelope, beats, and optionally per-band

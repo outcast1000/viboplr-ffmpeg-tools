@@ -198,13 +198,31 @@ function activate(api) {
     stream.channelLayout = ch ? ch[0] : null;
   }
 
+  // "h264 (High) (avc1 / 0x31637661), yuv420p(tv, bt709, progressive), 1920x1080
+  // [SAR 1:1 DAR 16:9], 4997 kb/s, 29.97 fps, 29.97 tbr, 30k tbn (default)".
+  // The pixel format's own parenthesised list holds commas, so fields are
+  // matched by shape rather than split on commas. Cover art is a one-frame
+  // video stream flagged "(attached pic)".
+  function parseVideoRest(rest) {
+    var st = { codec: (rest.split(",")[0] || "").trim() || null, pixelFormat: null, width: null, height: null, fps: null, bitrateKbps: null, attachedPic: /\(attached pic\)/.test(rest), tags: {} };
+    var pf = /^[^,]*,\s*([a-z0-9_]+)/i.exec(rest);
+    if (pf) st.pixelFormat = pf[1];
+    var res = /\b(\d{2,5})x(\d{2,5})\b/.exec(rest);
+    if (res) { st.width = parseInt(res[1], 10); st.height = parseInt(res[2], 10); }
+    var fps = /([\d.]+)\s*fps\b/.exec(rest);
+    if (fps) st.fps = parseFloat(fps[1]);
+    var br = /(\d+)\s*kb\/s/.exec(rest);
+    if (br) st.bitrateKbps = parseInt(br[1], 10);
+    return st;
+  }
+
   // ffmpeg (not ffprobe — not allow-listed) dumps container/stream/tag info to
   // stderr as a human-readable banner, not JSON. This is a best-effort line
   // scanner over that banner; unrecognized lines are silently skipped rather
   // than treated as fatal — format/locale drift across ffmpeg builds is an
   // accepted limitation, not a bug to chase down.
   function parseFfmpegProbe(stderr) {
-    var out = { format: null, durationSecs: null, overallBitrateKbps: null, tags: {}, streams: [] };
+    var out = { format: null, durationSecs: null, overallBitrateKbps: null, tags: {}, streams: [], videoStreams: [], coverArt: null };
     var lines = String(stderr || "").split(/\r?\n/);
     var mode = "top"; // top | input-meta | stream | stream-meta
     var curStream = null;
@@ -245,11 +263,24 @@ function activate(api) {
         continue;
       }
 
-      var streamM = /^\s*Stream #\d+:\d+.*?:\s*Audio:\s*(.+)$/.exec(line);
+      var streamM = /^\s*Stream #\d+:\d+.*?:\s*(Audio|Video|Subtitle|Data|Attachment):\s*(.+)$/.exec(line);
       if (streamM) {
-        curStream = { codec: null, sampleRateHz: null, channelLayout: null, sampleFmt: null, bitrateKbps: null, tags: {} };
-        parseStreamRest(streamM[1], curStream);
-        out.streams.push(curStream);
+        // Every stream kind becomes the current stream — even one nobody
+        // reports — so its Metadata block can't land on the stream before it.
+        if (streamM[1] === "Audio") {
+          curStream = { codec: null, sampleRateHz: null, channelLayout: null, sampleFmt: null, bitrateKbps: null, tags: {} };
+          parseStreamRest(streamM[2], curStream);
+          out.streams.push(curStream);
+        } else if (streamM[1] === "Video") {
+          curStream = parseVideoRest(streamM[2]);
+          if (curStream.attachedPic) {
+            if (!out.coverArt) out.coverArt = { codec: curStream.codec, width: curStream.width, height: curStream.height };
+          } else {
+            out.videoStreams.push(curStream);
+          }
+        } else {
+          curStream = { tags: {} };
+        }
         mode = "stream";
         continue;
       }
@@ -280,17 +311,17 @@ function activate(api) {
   // detail page opened, and then served a 30-day cache keyed on the track
   // rather than the file.
 
-  // The structured result both surfaces share.
-  function probeMediaInfo(path) {
-    return Promise.all([
-      api.system.exec("ffmpeg", ["-hide_banner", "-i", path]),
-      api.system.exec("ffmpeg", ["-hide_banner", "-nostats", "-vn", "-i", path, "-af", "ebur128=peak=true:framelog=quiet", "-f", "null", "-"]),
-    ]).then(function (results) {
-      var stderr = String(results[0].stderr || "");
+  // The structured result both surfaces share. The probe runs first (it is
+  // instant) because the measuring pass sizes its waveform frames from the
+  // duration. `withWaveform` is the view's: the assistant tool has no use for
+  // a picture and skips the extra meters.
+  function probeMediaInfo(path, withWaveform) {
+    return api.system.exec("ffmpeg", ["-hide_banner", "-i", path]).then(function (res) {
+      var stderr = String(res.stderr || "");
       if (/No such file or directory/i.test(stderr)) throw new Error("The file for this track is missing on disk: " + path);
       var probe = parseFfmpegProbe(stderr);
       if (!probe.format) throw new Error("ffmpeg could not read this file: " + lastStderrLine(stderr));
-      return {
+      var info = {
         format: probe.format,
         durationSecs: probe.durationSecs != null ? Math.round(probe.durationSecs * 100) / 100 : null,
         overallBitrateKbps: probe.overallBitrateKbps,
@@ -304,9 +335,21 @@ function activate(api) {
             tags: st.tags,
           };
         }),
+        videoStreams: probe.videoStreams.map(function (st) {
+          return { codec: st.codec, width: st.width, height: st.height, fps: st.fps, pixelFormat: st.pixelFormat, bitrateKbps: st.bitrateKbps, tags: st.tags };
+        }),
+        coverArt: probe.coverArt,
         tags: probe.tags,
-        loudness: loudnessFromEbur128(results[1].stderr),
+        loudness: null,
+        waveform: null,
       };
+      // A video-only file has nothing to measure.
+      if (!info.streams.length) return info;
+      return api.system.exec("ffmpeg", buildMediaInfoArgs(path, withWaveform ? info.durationSecs : null)).then(function (run) {
+        info.loudness = loudnessFromEbur128(run.stderr);
+        if (withWaveform) info.waveform = parseWaveform(run.stderr, WAVEFORM_POINTS);
+        return info;
+      });
     });
   }
 
@@ -346,9 +389,20 @@ function activate(api) {
         if (!t) throw new Error("This track is no longer in the library.");
         if (!isLocalUri(t.path)) throw new Error("Media Info needs a local file; this track plays from " + (t.path ? String(t.path).split("://")[0] : "no file at all") + ".");
         done({ title: t.title, artistName: t.artist_name || "", path: localPathFromUri(t.path) });
-        return probeMediaInfo(localPathFromUri(t.path));
+        return probeMediaInfo(localPathFromUri(t.path), true);
       }).then(function (info) {
-        done({ status: "ok", data: info, measuredAt: Date.now() });
+        // The file's facts show now; the structure follows. It's the same
+        // analysis analyze_audio serves — seconds on a first run, cached per
+        // file after that (and then warm for an assistant, too).
+        var structure = info.streams.length ? { status: "loading" } : null;
+        done({ status: "ok", data: info, structure: structure, measuredAt: Date.now() });
+        if (!structure) return;
+        return resolveAnalysisTarget(trackId, "Media Info").then(getFullAnalysis).then(function (r) {
+          done({ structure: { status: "ok", data: r.full } });
+        }, function (e) {
+          console.error("ffmpeg-tools: media info structure failed:", e);
+          done({ structure: { status: "error", message: String((e && e.message) || e) } });
+        });
       });
     }).then(null, function (e) {
       console.error("ffmpeg-tools: media info failed:", e);
@@ -416,8 +470,130 @@ function activate(api) {
     return { type: "section", title: titleArtist, children: children };
   }
 
-  function grid(pairs) {
-    return { type: "stats-grid", items: pairs.filter(function (p) { return p[1] != null && p[1] !== ""; }).map(function (p) { return { label: p[0], value: p[1] }; }) };
+  // A titled block of label/value rows, using the host's generic `plugin-heading`
+  // + `plugin-kv` classes — the same look as qBittorrent's Info tab. Tiles
+  // (stats-grid) suit a few headline numbers, not twenty rows of reference
+  // data: long values wrapped into towers and nothing lined up.
+  function kvBlock(title, pairs) {
+    var rows = pairs.filter(function (p) { return p[1] != null && p[1] !== ""; });
+    if (!rows.length) return [];
+    return [{ type: "text", className: "plugin-heading", content: title }].concat(rows.map(function (p) {
+      return {
+        type: "layout",
+        direction: "horizontal",
+        className: "plugin-kv",
+        children: [
+          { type: "text", className: "plugin-kv-key", content: p[0] },
+          { type: "text", className: "plugin-kv-value", content: String(p[1]) },
+        ],
+      };
+    }));
+  }
+
+  // Container bookkeeping ffmpeg reports as tags (the MP4 brand fields): true,
+  // but nothing a listener would look for.
+  var HIDDEN_TAGS = { major_brand: true, minor_version: true, compatible_brands: true };
+
+  function tagLabel(key) {
+    return key.charAt(0).toUpperCase() + key.slice(1).replace(/_/g, " ");
+  }
+
+  // ffmpeg names the demuxer, not the file: an .m4a reports "mov,mp4,m4a,3gp,3g2,mj2".
+  function containerLabel(format, path) {
+    var ext = /\.([A-Za-z0-9]{1,5})$/.exec(String(path || ""));
+    if (ext && format && format.indexOf(",") !== -1) return ext[1].toLowerCase();
+    return format;
+  }
+
+  function timeLabels(durationSecs) {
+    if (!(durationSecs > 0)) return undefined;
+    var labels = [];
+    for (var i = 0; i <= 4; i++) labels.push(fmtHms(durationSecs * i / 4));
+    return labels;
+  }
+
+  function waveformNode(points, durationSecs) {
+    return { type: "line-chart", series: [{ points: points }], labels: timeLabels(durationSecs), max: 100, area: true, valueFormat: "percent" };
+  }
+
+  // Skin colours, so every skin draws the bands in its own palette.
+  var BANDS = [
+    { key: "low", label: "Low · under 200 Hz", color: "var(--accent)" },
+    { key: "mid", label: "Mid · around 1 kHz", color: "var(--success)" },
+    { key: "high", label: "High · above 4 kHz", color: "var(--warning)" },
+  ];
+
+  // Halve a 0–100 series until it fits: three lines at full resolution are a tangle.
+  function thin(points, max) {
+    var out = points;
+    while (out.length > max) {
+      var next = [];
+      for (var i = 0; i < out.length; i += 2) next.push(i + 1 < out.length ? (out[i] + out[i + 1]) / 2 : out[i]);
+      out = next;
+    }
+    return out;
+  }
+
+  // The line chart has no legend of its own; a text node may carry spans with
+  // inline colour, which is what this is.
+  function bandsNodes(w, durationSecs) {
+    var present = BANDS.filter(function (b) { return w[b.key] && w[b.key].length > 1; });
+    if (!present.length) return [];
+    return [
+      { type: "text", className: "plugin-heading", content: "Frequency bands" },
+      {
+        type: "line-chart",
+        series: present.map(function (b) { return { label: b.label, color: b.color, points: thin(w[b.key], 120) }; }),
+        labels: timeLabels(durationSecs),
+        max: 100,
+        valueFormat: "percent",
+      },
+      {
+        type: "text",
+        content: present.map(function (b) {
+          return '<span style="color:' + b.color + '">●</span> ' + b.label;
+        }).join("&nbsp;&nbsp;&nbsp;") + "<br><span style=\"color:var(--text-secondary)\">Each band is scaled to its own loudest moment.</span>",
+      },
+    ];
+  }
+
+  var SECTION_KINDS = { intro: "Intro", build: "Build", main: "Main", peak: "Peak", breakdown: "Breakdown", outro: "Outro", silence: "Silence" };
+  var UNCERTAIN = 0.5; // confidence below this reads "(uncertain)"
+
+  function structureNodes(structure) {
+    if (!structure) return [];
+    var heading = { type: "text", className: "plugin-heading", content: "Structure" };
+    if (structure.status === "loading") return [heading, { type: "loading", message: "Finding sections and tempo…" }];
+    if (structure.status === "error") return [heading, { type: "text", content: structure.message || "Analysis failed.", className: "plugin-error" }];
+    var a = structure.data;
+    var b = a.beats;
+    var nodes = kvBlock("Structure", [
+      ["Tempo", b && b.bpm ? Math.round(b.bpm) + " bpm" + (b.confidence < UNCERTAIN ? " (uncertain)" : "") : null],
+      ["Music", a.musicStartSecs != null && a.musicEndSecs != null ? fmtHms(a.musicStartSecs) + " – " + fmtHms(a.musicEndSecs) : null],
+      ["Loudest moments", a.peaks && a.peaks.length ? a.peaks.map(function (p) { return fmtHms(p.at); }).join(", ") : null],
+    ]);
+    // Sections sharing a letter sound alike — probably a repeat.
+    return nodes.concat(kvBlock("Sections", (a.sections || []).map(function (s) {
+      var name = (SECTION_KINDS[s.kind] || s.kind) + (s.label ? " · " + s.label : "");
+      return [fmtHms(s.at) + " – " + fmtHms(s.until), name + (s.confidence < UNCERTAIN ? " (uncertain)" : "")];
+    })));
+  }
+
+  function videoRows(st) {
+    return [
+      ["Codec", st.codec],
+      ["Resolution", st.width && st.height ? st.width + " × " + st.height : null],
+      ["Frame rate", st.fps ? st.fps + " fps" : null],
+      ["Pixel format", st.pixelFormat],
+      ["Bitrate", st.bitrateKbps ? st.bitrateKbps + " kb/s" : null],
+    ];
+  }
+
+  function coverArtLabel(c) {
+    if (!c) return null;
+    var codec = String(c.codec || "").split(" ")[0];
+    var kind = { mjpeg: "JPEG", png: "PNG", bmp: "BMP", gif: "GIF", webp: "WebP" }[codec] || codec.toUpperCase();
+    return kind + (c.width && c.height ? ", " + c.width + " × " + c.height : "");
   }
 
   function clip(v) {
@@ -428,9 +604,9 @@ function activate(api) {
   function mediaInfoChildren() {
     var info = state.info;
     var children = [];
+    // No title: the tab already says "Media Info". The status names the file.
     children.push({
       type: "toolbar",
-      title: "Media Info",
       buttons: info ? [{ label: "Refresh", action: "refresh-media-info", variant: "secondary", disabled: info.status === "loading" }] : [],
       status: info ? ((info.artistName ? info.artistName + " — " : "") + info.title) : "",
       statusVariant: info && info.status === "error" ? "error" : "default",
@@ -449,34 +625,59 @@ function activate(api) {
       return children;
     }
     var d = info.data;
-    children.push({ type: "section", title: "File", children: [grid([
-      ["Format", d.format],
-      ["Duration", d.durationSecs != null ? fmtHms(d.durationSecs) : null],
-      ["Overall bitrate", d.overallBitrateKbps != null ? d.overallBitrateKbps + " kb/s" : null],
-    ])] });
-    d.streams.forEach(function (st, i) {
-      children.push({ type: "section", title: d.streams.length > 1 ? "Audio stream " + (i + 1) : "Audio stream", children: [grid([
+    if (d.waveform && d.waveform.overall.length > 1) children.push(waveformNode(d.waveform.overall, d.durationSecs));
+
+    // One audio stream and no video (the usual case) folds into the file's own
+    // block; anything else gets a block per stream.
+    function streamRows(st) {
+      return [
         ["Codec", st.codec],
         ["Sample rate", st.sampleRateHz ? st.sampleRateHz + " Hz" : null],
         ["Channels", st.channels],
         ["Sample format", st.sampleFormat],
         ["Bitrate", st.bitrateKbps ? st.bitrateKbps + " kb/s" : null],
-      ])] });
+      ];
+    }
+    var videos = d.videoStreams || [];
+    var single = d.streams.length === 1 && !videos.length;
+    var overall = d.overallBitrateKbps != null ? d.overallBitrateKbps + " kb/s" : null;
+    var fileRows = [
+      ["Container", containerLabel(d.format, info.path)],
+      ["Duration", d.durationSecs != null ? fmtHms(d.durationSecs) : null],
+      ["Cover art", coverArtLabel(d.coverArt)],
+    ];
+    if (single) {
+      // FLAC reports no per-stream bitrate; the file's overall figure stands in.
+      fileRows = fileRows.concat(streamRows(d.streams[0]).map(function (r) {
+        return r[0] === "Bitrate" && r[1] == null ? ["Bitrate", overall] : r;
+      }));
+    } else {
+      fileRows.push(["Overall bitrate", overall]);
+    }
+    children = children.concat(kvBlock("Format", fileRows));
+    videos.forEach(function (st, i) {
+      children = children.concat(kvBlock(videos.length > 1 ? "Video stream " + (i + 1) : "Video", videoRows(st)));
     });
+    if (!single) {
+      d.streams.forEach(function (st, i) {
+        children = children.concat(kvBlock(d.streams.length > 1 ? "Audio stream " + (i + 1) : "Audio", streamRows(st)));
+      });
+    }
+    if (d.waveform) children = children.concat(bandsNodes(d.waveform, d.durationSecs));
     if (d.loudness) {
       var g = d.loudness.suggestedGainDb;
-      children.push({ type: "section", title: "Loudness", children: [
-        grid([
-          ["Integrated", d.loudness.integratedLufs.toFixed(1) + " LUFS"],
-          ["True peak", d.loudness.truePeakDb != null ? d.loudness.truePeakDb.toFixed(1) + " dBTP" : null],
-          ["Loudness range", d.loudness.rangeLu != null ? d.loudness.rangeLu.toFixed(1) + " LU" : null],
-          ["Suggested track gain", (g >= 0 ? "+" : "") + g.toFixed(2) + " dB"],
-        ]),
-        { type: "text", content: "Measured, not written: nothing is changed in the file.", className: "plugin-hint" },
-      ] });
+      children = children.concat(kvBlock("Loudness", [
+        ["Integrated", d.loudness.integratedLufs.toFixed(1) + " LUFS"],
+        ["True peak", d.loudness.truePeakDb != null ? d.loudness.truePeakDb.toFixed(1) + " dBTP" : null],
+        ["Loudness range", d.loudness.rangeLu != null ? d.loudness.rangeLu.toFixed(1) + " LU" : null],
+        // Measured, never written back into the file.
+        ["Suggested gain", (g >= 0 ? "+" : "") + g.toFixed(2) + " dB (not applied)"],
+      ]));
     }
-    var tagPairs = Object.keys(d.tags).map(function (k) { return [k, clip(d.tags[k])]; });
-    if (tagPairs.length) children.push({ type: "section", title: "Tags", children: [grid(tagPairs)] });
+    children = children.concat(structureNodes(info.structure));
+    children = children.concat(kvBlock("Tags", Object.keys(d.tags).filter(function (k) { return !HIDDEN_TAGS[k]; }).map(function (k) {
+      return [tagLabel(k), clip(d.tags[k])];
+    })));
     return children;
   }
 
@@ -776,35 +977,40 @@ function activate(api) {
     });
   }
 
+  // The full (unshaped) analysis for a resolved target: from the cache, from
+  // a run already in flight for the same file, or a fresh run. Shared by the
+  // analyze_audio tool and the Media Info view's Structure block.
+  function getFullAnalysis(target) {
+    return cacheGet(target.cacheKey).then(null, function (e) {
+      console.error("ffmpeg-tools: analysis cache read failed:", e);
+      return null;
+    }).then(function (hit) {
+      if (hit) return { full: hit, cached: true };
+      var key = target.cacheKey;
+      if (!inFlight[key]) {
+        inFlight[key] = withSlot(function () { return runAnalysis(target); }).then(function (full) {
+          delete inFlight[key];
+          // Not awaited: the caller gets the answer now. If the host's 60 s
+          // budget ran out mid-analysis, this write still lands, so a retry
+          // is served from the cache.
+          cachePut(key, full);
+          return full;
+        }, function (e) {
+          delete inFlight[key];
+          throw e;
+        });
+      }
+      return inFlight[key].then(function (full) { return { full: full, cached: false }; });
+    });
+  }
+
   function analyzeAudio(args) {
     var opts = validateAnalyzeArgs(args);
     return api.system.getDependency("ffmpeg").then(function (dep) {
       state.dep = dep;
       if (!dep || !dep.installed) throw new Error("ffmpeg is not installed — install it from Extensions → Tools");
       return resolveAnalysisTarget(opts.trackId);
-    }).then(function (target) {
-      return cacheGet(target.cacheKey).then(null, function (e) {
-        console.error("ffmpeg-tools: analysis cache read failed:", e);
-        return null;
-      }).then(function (hit) {
-        if (hit) return { full: hit, cached: true };
-        var key = target.cacheKey;
-        if (!inFlight[key]) {
-          inFlight[key] = withSlot(function () { return runAnalysis(target); }).then(function (full) {
-            delete inFlight[key];
-            // Not awaited: the caller gets the answer now. If the host's 60 s
-            // budget ran out mid-analysis, this write still lands, so a retry
-            // is served from the cache.
-            cachePut(key, full);
-            return full;
-          }, function (e) {
-            delete inFlight[key];
-            throw e;
-          });
-        }
-        return inFlight[key].then(function (full) { return { full: full, cached: false }; });
-      });
-    }).then(function (r) {
+    }).then(getFullAnalysis).then(function (r) {
       var out = shapeAnalysis(r.full, opts.include, opts.envelopeHz);
       out.cached = r.cached;
       return out;
@@ -829,6 +1035,8 @@ function activate(api) {
           durationSecs: info.durationSecs,
           overallBitrateKbps: info.overallBitrateKbps,
           streams: info.streams,
+          videoStreams: info.videoStreams,
+          coverArt: info.coverArt,
           tags: info.tags,
           loudness: info.loudness,
         };
@@ -958,8 +1166,8 @@ function buildAnalysisArgs(path, plan) {
   // 4 kHz is the Nyquist limit at 8 kHz — so it gets its own 16 kHz branch.
   var mono = [
     meter("env", 8000 / plan.envHz),
-    "lowpass=f=200," + meter("low", 8000),
-    "bandpass=f=1000:width_type=o:w=2," + meter("mid", 8000),
+    LOW_BAND + "," + meter("low", 8000),
+    MID_BAND + "," + meter("mid", 8000),
   ];
   if (plan.onsetHz) {
     // All onset bands ride one multichannel stream (amerge), so each frame
@@ -984,7 +1192,7 @@ function buildAnalysisArgs(path, plan) {
       "amerge=inputs=" + ONSET_BANDS.length + ",asetnsamples=n=" + (8000 / plan.onsetHz) +
       ",astats=metadata=1:reset=1:measure_overall=none:measure_perchannel=RMS_level,ametadata@ons=print,anullsink");
   }
-  g.push("[h]aresample=16000," + MONO + ",highpass=f=4000," + meter("high", 16000) + ",anullsink");
+  g.push("[h]aresample=16000," + MONO + "," + HIGH_BAND + "," + meter("high", 16000) + ",anullsink");
   g.push("[e]ebur128=peak=" + (plan.truePeak ? "true" : "sample") + ":framelog=quiet,anullsink");
   if (plan.vocals) {
     // Vocals are usually panned centre: compare mid (L+R) with side (L−R) in
@@ -995,6 +1203,94 @@ function buildAnalysisArgs(path, plan) {
     g.push("[vb]pan=mono|c0=0.5*c0-0.5*c1," + band + meter("vside", 8000) + ",anullsink");
   }
   return ["-hide_banner", "-nostats", "-vn", "-i", path, "-filter_complex", g.join(";"), "-map", "[out]", "-f", "null", "-"];
+}
+
+// Media Info's second pass: loudness and the waveform from ONE decode. The
+// graph splits the audio — ebur128 on the original, an RMS meter on an 8 kHz
+// copy (20 ms frames) — so drawing the waveform costs no extra read.
+//
+// RMS, not peak: a mastered track touches full scale in nearly every 20 ms
+// window, so a peak line sits pinned at the top and shows nothing.
+var WAVEFORM_POINTS = 240;
+// Frequency bands, shared with the analysis pass so "low" means the same thing
+// in the view and to an assistant. High can't live at 8 kHz (its Nyquist limit
+// is 4 kHz), so it gets its own 16 kHz branch.
+var LOW_BAND = "lowpass=f=200";
+var MID_BAND = "bandpass=f=1000:width_type=o:w=2";
+var HIGH_BAND = "highpass=f=4000";
+
+// Without a duration (the media_info tool) the pass is loudness only. With
+// one, frames are sized so every file prints about the same number of lines —
+// fixed 20 ms frames would print ~1.4 M lines for a two-hour concert.
+function buildMediaInfoArgs(path, durationSecs) {
+  if (!(durationSecs > 0)) {
+    return ["-hide_banner", "-nostats", "-vn", "-i", path, "-af", "ebur128=peak=true:framelog=quiet", "-f", "null", "-"];
+  }
+  var n = Math.max(160, Math.round(8000 * durationSecs / (WAVEFORM_POINTS * 8)));
+  function meter(name, samples) {
+    return "asetnsamples=n=" + samples + ",astats=metadata=1:reset=1:measure_perchannel=none:measure_overall=RMS_level," +
+      "ametadata@" + name + "=print:key=lavfi.astats.Overall.RMS_level,anullsink";
+  }
+  var MONO = "aformat=sample_fmts=flt:channel_layouts=mono";
+  var g = [
+    "[0:a:0]asplit=3[l][w][h]",
+    "[l]ebur128=peak=true:framelog=quiet[out]",
+    "[w]aresample=8000," + MONO + ",asplit=3[wa][wl][wm]",
+    "[wa]" + meter("wave", n),
+    "[wl]" + LOW_BAND + "," + meter("wlow", n),
+    "[wm]" + MID_BAND + "," + meter("wmid", n),
+    "[h]aresample=16000," + MONO + "," + HIGH_BAND + "," + meter("whigh", 2 * n),
+  ];
+  return ["-hide_banner", "-nostats", "-vn", "-i", path, "-filter_complex", g.join(";"), "-map", "[out]", "-f", "null", "-"];
+}
+
+// One meter's frames (dBFS) out of the pass's stderr.
+function meterLevels(stderr, tag) {
+  var levels = [];
+  var prefix = "[ametadata@" + tag + " @ ";
+  var lines = String(stderr || "").split(/\r?\n/);
+  for (var i = 0; i < lines.length; i++) {
+    if (lines[i].lastIndexOf(prefix, 0) !== 0) continue;
+    var m = /lavfi\.astats\.Overall\.RMS_level=(.*)$/.exec(lines[i]);
+    if (m) levels.push(dbValue(m[1]));
+  }
+  return levels;
+}
+
+// Frames folded into `points` buckets (energy mean of each), as linear
+// amplitude scaled to the series' own loudest bucket = 100. RMS, not peak: a
+// mastered track touches full scale in nearly every window, so a peak line
+// sits pinned at the top. Relative on purpose: the shape is the point, and the
+// high band carries a fraction of the low band's energy — on one shared scale
+// it would be a flat line. Null when there are no frames or only silence.
+function relativeAmplitudes(levels, points) {
+  if (!levels.length) return null;
+  var n = Math.min(points, levels.length);
+  var amps = [];
+  var top = 0;
+  for (var b = 0; b < n; b++) {
+    var from = Math.floor(b * levels.length / n);
+    var to = Math.max(from + 1, Math.floor((b + 1) * levels.length / n));
+    var db = dbMean(levels, from, to);
+    var a = db <= DB_FLOOR ? 0 : Math.pow(10, db / 20);
+    amps.push(a);
+    if (a > top) top = a;
+  }
+  if (top <= 0) return null;
+  return amps.map(function (a) { return Math.round(1000 * a / top) / 10; });
+}
+
+// { overall, low, mid, high } (each 0–100, see relativeAmplitudes), or null
+// when the pass carried no waveform at all.
+function parseWaveform(stderr, points) {
+  var overall = relativeAmplitudes(meterLevels(stderr, "wave"), points);
+  if (!overall) return null;
+  return {
+    overall: overall,
+    low: relativeAmplitudes(meterLevels(stderr, "wlow"), points),
+    mid: relativeAmplitudes(meterLevels(stderr, "wmid"), points),
+    high: relativeAmplitudes(meterLevels(stderr, "whigh"), points),
+  };
 }
 
 // Parses the analysis pass's stderr. Tolerant by design: a truncated run or an
@@ -1822,6 +2118,8 @@ return {
     analysisPlan: analysisPlan,
     buildAnalysisArgs: buildAnalysisArgs,
     parseAnalysisStderr: parseAnalysisStderr,
+    buildMediaInfoArgs: buildMediaInfoArgs,
+    parseWaveform: parseWaveform,
     analyzeParsed: analyzeParsed,
     shapeAnalysis: shapeAnalysis,
     validateAnalyzeArgs: validateAnalyzeArgs,
