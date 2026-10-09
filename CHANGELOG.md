@@ -1,5 +1,8 @@
 # Changelog
 
+## v1.3.1
+- New icon: an audio waveform replaces the wrench, in the sidebar and in Extensions.
+
 ## v1.3.0
 - **Media Info is easier to read.** The tiles are replaced by plain label/value rows
   under small headings, like the rest of the app. Long values (album names, codecs)

@@ -1,7 +1,7 @@
 {
   "id": "ffmpeg-tools",
   "name": "FFmpeg Tools",
-  "version": "1.3.0",
+  "version": "1.3.1",
   "author": "Viboplr",
   "description": "Bulk-convert local tracks to another format, inspect a file's container/stream/tag + loudness info on demand, and give an AI assistant a song's structure (sections, loudness, beats) — all via your system ffmpeg.",
   "minAppVersion": "1.0.85",
@@ -13,7 +13,7 @@
   ],
   "homepage": "https://github.com/outcast1000/viboplr-ffmpeg-tools",
   "updateUrl": "https://github.com/outcast1000/viboplr-ffmpeg-tools/releases/latest/download/update.json",
-  "icon": "M14.7 6.3a1 1 0 0 1 0 1.4l-1.6 1.6a1 1 0 0 1-1.4 0l-1.6-1.6a1 1 0 0 1 0-1.4l3.77-3.77a6 6 0 0 0-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 0 3 3l6.91-6.91a6 6 0 0 0 7.94-7.94l-3.76 3.76z",
+  "icon": "M2 13a2 2 0 0 0 2-2V7a2 2 0 0 1 4 0v13a2 2 0 0 0 4 0V4a2 2 0 0 1 4 0v13a2 2 0 0 0 4 0v-4a2 2 0 0 1 2-2",
   "binaryDependencies": [
     {
       "name": "ffmpeg",
@@ -84,7 +84,7 @@
       {
         "id": "ffmpeg-tools-jobs",
         "label": "FFmpeg Tools",
-        "icon": "M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01"
+        "icon": "M2 13a2 2 0 0 0 2-2V7a2 2 0 0 1 4 0v13a2 2 0 0 0 4 0V4a2 2 0 0 1 4 0v13a2 2 0 0 0 4 0v-4a2 2 0 0 1 2-2"
       }
     ],
     "settingsPanel": {
