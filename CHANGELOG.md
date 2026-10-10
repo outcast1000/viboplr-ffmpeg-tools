@@ -1,5 +1,9 @@
 # Changelog
 
+
+## v1.3.2
+- Releases are now signed with the Viboplr plugin-signing key, so Viboplr allows the permissions this plugin asks for without prompting. No functional changes.
+
 ## v1.3.1
 - New icon: an audio waveform replaces the wrench, in the sidebar and in Extensions.
 
