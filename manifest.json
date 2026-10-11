@@ -1,7 +1,7 @@
 {
   "id": "ffmpeg-tools",
   "name": "FFmpeg Tools",
-  "version": "1.3.2",
+  "version": "1.3.3",
   "author": "Viboplr",
   "description": "Bulk-convert local tracks to another format, inspect a file's container/stream/tag + loudness info on demand, and give an AI assistant a song's structure (sections, loudness, beats) — all via your system ffmpeg.",
   "minAppVersion": "1.0.85",
@@ -11,6 +11,11 @@
     "library:read",
     "playback:read"
   ],
+  "permissionReasons": {
+    "exec:ffmpeg": "Convert tracks to other formats, read a file's streams, tags and loudness, and analyse song structure",
+    "library:read": "Find the file behind a track you pick to convert, inspect or analyse",
+    "playback:read": "Inspect or analyse the playing track when an AI assistant asks without naming a track"
+  },
   "homepage": "https://github.com/outcast1000/viboplr-ffmpeg-tools",
   "updateUrl": "https://github.com/outcast1000/viboplr-ffmpeg-tools/releases/latest/download/update.json",
   "icon": "M2 13a2 2 0 0 0 2-2V7a2 2 0 0 1 4 0v13a2 2 0 0 0 4 0V4a2 2 0 0 1 4 0v13a2 2 0 0 0 4 0v-4a2 2 0 0 1 2-2",
@@ -19,64 +24,6 @@
       "name": "ffmpeg",
       "required": true,
       "reason": "Converts local tracks to another format, probes container/stream/tag + loudness info, and analyses song structure"
-    }
-  ],
-  "apiUsage": [
-    {
-      "api": "system.exec",
-      "reason": "Run ffmpeg for conversion, container/stream probing, loudness measurement and song-structure analysis"
-    },
-    {
-      "api": "system.getDependency",
-      "reason": "Check ffmpeg availability before enabling any feature"
-    },
-    {
-      "api": "ui.requestAction",
-      "reason": "Prompt ffmpeg install on an explicit convert action; route deletes through the canonical delete flow"
-    },
-    {
-      "api": "library.getTrackById",
-      "reason": "Resolve a context-menu or assistant target to its filesystem path"
-    },
-    {
-      "api": "playback.getCurrentTrack",
-      "reason": "media_info / analyze_audio with no trackId read the playing track"
-    },
-    {
-      "api": "contextMenu.registerItem",
-      "reason": "\"Media Info (FFmpeg)\" on a track, and the \"Convert to…\" native submenu with fixed format presets"
-    },
-    {
-      "api": "ui.navigateToView",
-      "reason": "Open the FFmpeg Tools view on Media Info or the convert jobs"
-    },
-    {
-      "api": "assistant.onTool",
-      "reason": "Answer the media_info and analyze_audio assistant tools"
-    },
-    {
-      "api": "storage.get",
-      "reason": "Load the auto-delete-original preference"
-    },
-    {
-      "api": "storage.set",
-      "reason": "Persist the auto-delete-original preference"
-    },
-    {
-      "api": "storage.files.exists",
-      "reason": "Check for the analysis cache index before reading it"
-    },
-    {
-      "api": "storage.files.readJson",
-      "reason": "Read cached song analyses"
-    },
-    {
-      "api": "storage.files.writeJson",
-      "reason": "Cache song analyses, keyed by file path + size + modification time"
-    },
-    {
-      "api": "storage.files.remove",
-      "reason": "Evict old cached analyses"
     }
   ],
   "contributes": {
