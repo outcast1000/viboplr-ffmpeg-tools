@@ -1,7 +1,7 @@
 {
   "id": "ffmpeg-tools",
   "name": "FFmpeg Tools",
-  "version": "1.3.3",
+  "version": "1.3.4",
   "author": "Viboplr",
   "description": "Bulk-convert local tracks to another format, inspect a file's container/stream/tag + loudness info on demand, and give an AI assistant a song's structure (sections, loudness, beats) — all via your system ffmpeg.",
   "minAppVersion": "1.0.85",
@@ -46,6 +46,7 @@
           "name": "media_info",
           "readOnly": true,
           "description": "Technical facts about a local track's file — container format, duration, overall bitrate, audio streams (codec, sample rate, channels, sample format, bitrate), embedded tags, and measured loudness (integratedLufs, truePeakDb, rangeLu, suggestedGainDb). Omit trackId for the playing track.",
+          "categories": ["library"],
           "inputSchema": {
             "type": "object",
             "properties": {
@@ -60,6 +61,7 @@
           "name": "analyze_audio",
           "readOnly": true,
           "description": "Musical structure of a local track — music start/end, integrated loudness, sections with kind/level/label/confidence, loud peaks, a loudness envelope, beats (bpm, beat and downbeat times), and optionally per-band levels and a vocal-presence hint. Omit trackId to analyse the playing track. Times are seconds; heuristic results carry a confidence from 0 to 1.",
+          "categories": ["info"],
           "inputSchema": {
             "type": "object",
             "properties": {

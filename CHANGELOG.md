@@ -1,5 +1,8 @@
 # Changelog
 
+## v1.3.4
+- Each AI tool now says what it is about (its category), so Viboplr's in-app assistant can offer it alongside the app's own tools of the same kind instead of sending every tool at once. Viboplr versions that don't know the field ignore it.
+
 ## v1.3.3
 - Each permission now says why the plugin needs it, shown under it when Viboplr asks. No functional changes.
 
