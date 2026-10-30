@@ -1,5 +1,8 @@
 # Changelog
 
+## v1.3.5
+- The media_info AI tool is now filed under "info" rather than "library": it describes one file's format and loudness, so an in-app assistant asked about the library (finding or tagging tracks) no longer gets it.
+
 ## v1.3.4
 - Each AI tool now says what it is about (its category), so Viboplr's in-app assistant can offer it alongside the app's own tools of the same kind instead of sending every tool at once. Viboplr versions that don't know the field ignore it.
 
